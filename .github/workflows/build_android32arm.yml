@@ -1,6 +1,5 @@
 name: Android armeabi-v7a Build
 
-# 触发规则：推送到master、打tag、PR到master时触发
 on:
   push:
     branches: [ master ]
@@ -12,7 +11,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# 发布Release需要的权限
 permissions:
   contents: write
 
@@ -22,16 +20,13 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        # 只保留32位ARM这一个ABI
         abi: [armeabi-v7a]
 
     steps:
-    # 拉取代码+子模块
     - uses: actions/checkout@v6
       with:
         submodules: true
 
-    # 自动使用系统自带的最新Android NDK
     - name: Resolve Android NDK
       run: |
         if [ -z "${ANDROID_NDK_LATEST_HOME:-}" ]; then
@@ -40,7 +35,6 @@ jobs:
         fi
         echo "ANDROID_NDK_HOME=${ANDROID_NDK_LATEST_HOME}" >> "$GITHUB_ENV"
 
-    # CMake配置：用NDK工具链编译32位ARM
     - name: Configure
       run: |
         cmake -S "${{ github.workspace }}" -B "${{ github.workspace }}/build-android-${{ matrix.abi }}" \
@@ -52,21 +46,27 @@ jobs:
           -DBUILD_TEST_EXAMPLE=OFF \
           -DBUILD_SHELL=OFF
 
-    # 执行编译
     - name: Build
       run: cmake --build "${{ github.workspace }}/build-android-${{ matrix.abi }}" --config Release --parallel
 
-    # 安装输出到统一目录
     - name: Install
       run: cmake --install "${{ github.workspace }}/build-android-${{ matrix.abi }}" --config Release
 
-    # 验证产物是否生成成功
     - name: Verify outputs
       run: |
         test -f "output-android-${{ matrix.abi }}/bin/libsimple.so"
         test -f "output-android-${{ matrix.abi }}/bin/dict/jieba.dict.utf8"
 
-    # 打tag时自动打包成zip
+    # 每次编译都上传产物到 Action Artifacts
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: libsimple-android-${{ matrix.abi }}
+        path: |
+          output-android-${{ matrix.abi }}/bin/libsimple.so
+          output-android-${{ matrix.abi }}/bin/dict/
+
+    # 打 tag 时才打包 zip 并发布到 Release
     - name: Package
       if: startsWith(github.ref, 'refs/tags/')
       run: |
@@ -77,7 +77,6 @@ jobs:
         zip -r "libsimple-android-${{ matrix.abi }}.zip" "libsimple-android-${{ matrix.abi }}"
       working-directory: "${{ github.workspace }}"
 
-    # 打tag时自动上传到GitHub Release
     - name: Release
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
